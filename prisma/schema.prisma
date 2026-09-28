@@ -1,0 +1,108 @@
+// This is your Prisma schema file for Supabase PostgreSQL
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model BusinessUnit {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  type      String   @default("filial") // matriz, filial
+  address   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users     User[]
+  epis      EPI[]
+  movements Movement[]
+}
+
+model User {
+  id               String   @id @default(uuid())
+  email            String   @unique
+  password         String
+  name             String
+  role             String   @default("operador") // admin, operador, visualizador
+  department       String?
+  status           String   @default("active")  // active, inactive
+  lastLogin        DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  businessUnitId   String?
+
+  businessUnit     BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  movements        Movement[] @relation("UserMovements")
+}
+
+model EPI {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  name         String
+  category     String
+  location     String
+  minQty       Int      @default(0)
+  currentQty   Int      @default(0)
+  unit         String   @default("un")
+  status       String   @default("disponivel") // disponivel, baixo, esgotado
+  manufacturer String?
+  caNumber     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  businessUnitId String?
+
+  businessUnit BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  movements    Movement[]
+}
+
+model Movement {
+  id              String   @id @default(uuid())
+  type            String   // entrada, saida
+  epiId           String
+  epiName         String
+  epiCode         String
+  quantity        Int
+  responsibleId   String?
+  responsibleName String
+  recipient       String?
+  reason          String?
+  notes           String?
+  date            DateTime @default(now())
+  businessUnitId  String?
+
+  epi             EPI           @relation(fields: [epiId], references: [id], onDelete: Cascade)
+  responsible     User?         @relation("UserMovements", fields: [responsibleId], references: [id], onDelete: SetNull)
+  businessUnit    BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  userId    String?
+  userName  String
+  userRole  String
+  action    String
+  details   String
+  ip        String?
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  timestamp DateTime @default(now())
+  recipient String
+  subject   String
+  body      String
+  read      Boolean  @default(false)
+  type      String   @default("low_stock") // low_stock, out_of_stock, general
+  epiId     String?
+}
