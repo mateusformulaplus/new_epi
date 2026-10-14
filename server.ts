@@ -766,9 +766,24 @@ function mapPrismaFormulaRetirada(item: any) {
     name: item.name,
     manufacturer: item.manufacturer ?? undefined,
     currentQty: item.currentQty,
-    minQty: item.minQty,
     location: item.location,
     updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
+  };
+}
+
+function mapPrismaFormulaMovement(movement: any) {
+  return {
+    id: movement.id,
+    formulaId: movement.formulaId,
+    formulaName: movement.formulaName,
+    type: movement.type,
+    quantity: movement.quantity,
+    responsibleId: movement.responsibleId ?? undefined,
+    responsibleName: movement.responsibleName,
+    recipient: movement.recipient ?? undefined,
+    reason: movement.reason ?? undefined,
+    notes: movement.notes ?? undefined,
+    date: movement.date instanceof Date ? movement.date.toISOString() : movement.date,
   };
 }
 
@@ -786,17 +801,16 @@ app.get('/api/formulas-retiradas', async (_req, res) => {
 });
 
 app.post('/api/formulas-retiradas', async (req, res) => {
-  const { name, manufacturer, currentQty, minQty, location, userId, userName, userRole } = req.body;
+  const { name, manufacturer, currentQty, location, userId, userName, userRole } = req.body;
   const quantity = Number(currentQty);
-  const minimum = Number(minQty);
-  if (!name?.trim() || !formulaStorageLocations.has(location) || !Number.isInteger(quantity) || quantity < 0 || !Number.isInteger(minimum) || minimum < 0) {
-    return res.status(400).json({ error: 'Informe nome, quantidades válidas e um armazenamento entre ARM 01-07 ou CX 01-07.' });
+  if (!name?.trim() || !formulaStorageLocations.has(location) || !Number.isInteger(quantity) || quantity < 0) {
+    return res.status(400).json({ error: 'Informe nome, quantidade válida e um armazenamento entre ARM 01-07 ou CX 01-07.' });
   }
   if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
 
   try {
     const item = await prisma.formulaRetirada.create({
-      data: { name: name.trim(), manufacturer: manufacturer?.trim() || null, currentQty: quantity, minQty: minimum, location },
+      data: { name: name.trim(), manufacturer: manufacturer?.trim() || null, currentQty: quantity, location },
     });
     await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Cadastro de Fórmula Retirada', `Cadastrada a fórmula ${item.name} com estoque de ${item.currentQty}.`);
     return res.status(201).json(mapPrismaFormulaRetirada(item));
@@ -809,10 +823,9 @@ app.post('/api/formulas-retiradas', async (req, res) => {
 
 app.put('/api/formulas-retiradas/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, manufacturer, currentQty, minQty, location, userId, userName, userRole } = req.body;
+    const { name, manufacturer, currentQty, location, userId, userName, userRole } = req.body;
   if ((name !== undefined && !name?.trim()) || (location !== undefined && !formulaStorageLocations.has(location)) ||
-      (currentQty !== undefined && (!Number.isInteger(Number(currentQty)) || Number(currentQty) < 0)) ||
-      (minQty !== undefined && (!Number.isInteger(Number(minQty)) || Number(minQty) < 0))) {
+      (currentQty !== undefined && (!Number.isInteger(Number(currentQty)) || Number(currentQty) < 0))) {
     return res.status(400).json({ error: 'Dados inválidos. Verifique nome, quantidades e armazenamento.' });
   }
   if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
@@ -824,11 +837,10 @@ app.put('/api/formulas-retiradas/:id', async (req, res) => {
         ...(name !== undefined && { name: name.trim() }),
         ...(manufacturer !== undefined && { manufacturer: manufacturer?.trim() || null }),
         ...(currentQty !== undefined && { currentQty: Number(currentQty) }),
-        ...(minQty !== undefined && { minQty: Number(minQty) }),
         ...(location !== undefined && { location }),
       },
     });
-    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Edição de Fórmula Retirada', `Alterada a fórmula ${item.name}. Estoque mínimo: ${item.minQty}, quantidade: ${item.currentQty}.`);
+    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Edição de Fórmula Retirada', `Alterada a fórmula ${item.name}. Quantidade: ${item.currentQty}.`);
     return res.json(mapPrismaFormulaRetirada(item));
   } catch (err: any) {
     if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
@@ -850,8 +862,80 @@ app.delete('/api/formulas-retiradas/:id', async (req, res) => {
   } catch (err: any) {
     if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
     if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    if (err?.code === 'P2003') return res.status(409).json({ error: 'Não é possível excluir uma fórmula que possui movimentações no histórico.' });
     console.error('Erro ao excluir fórmula retirada:', err);
     return res.status(500).json({ error: 'Erro ao excluir fórmula retirada do banco.' });
+  }
+});
+
+app.get('/api/formulas-retiradas/movements', async (_req, res) => {
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const movements = await prisma.formulaMovement.findMany({ orderBy: { date: 'desc' } });
+    return res.json(movements.map(mapPrismaFormulaMovement));
+  } catch (err) {
+    console.error('Erro ao buscar movimentações de fórmulas:', err);
+    return res.status(500).json({ error: 'Erro ao buscar movimentações de fórmulas.' });
+  }
+});
+
+app.post('/api/formulas-retiradas/movements', async (req, res) => {
+  const { formulaId, type, quantity, responsibleId, responsibleName, responsibleRole, reason, recipient, notes } = req.body;
+  const numQty = Number(quantity);
+  if (!formulaId || !['entrada', 'saida'].includes(type) || !Number.isInteger(numQty) || numQty <= 0) {
+    return res.status(400).json({ error: 'Fórmula, tipo e quantidade inteira maior que zero são obrigatórios.' });
+  }
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.formulaRetirada.updateMany({
+        where: { id: formulaId, ...(type === 'saida' ? { currentQty: { gte: numQty } } : {}) },
+        data: { currentQty: type === 'entrada' ? { increment: numQty } : { decrement: numQty } },
+      });
+
+      if (!updated.count) {
+        const exists = await tx.formulaRetirada.findUnique({ where: { id: formulaId }, select: { id: true, name: true, currentQty: true } });
+        return exists
+          ? { error: `Estoque insuficiente de ${exists.name}: saldo ${exists.currentQty}, retirada solicitada ${numQty}.` }
+          : { error: 'Fórmula não encontrada.' };
+      }
+
+      const formula = await tx.formulaRetirada.findUniqueOrThrow({ where: { id: formulaId } });
+      const movement = await tx.formulaMovement.create({
+        data: {
+          formulaId: formula.id,
+          formulaName: formula.name,
+          type,
+          quantity: numQty,
+          responsibleId: responsibleId || null,
+          responsibleName: responsibleName || 'Operador do Sistema',
+          reason: reason || (type === 'entrada' ? 'Reposição de estoque' : 'Retirada de fórmula'),
+          recipient: recipient || null,
+          notes: notes || null,
+        },
+      });
+      return { formula, movement };
+    });
+
+    if ('error' in result) {
+      return res.status(result.error === 'Fórmula não encontrada.' ? 404 : 400).json({ error: result.error });
+    }
+
+    const action = type === 'entrada' ? 'Entrada de Fórmula' : 'Retirada de Fórmula';
+    await addAuditLog(
+      responsibleId || 'user', responsibleName || 'Usuário', responsibleRole || 'operador', action,
+      `${type.toUpperCase()}: ${numQty} unidade(s) de ${result.formula.name}. Saldo atualizado para ${result.formula.currentQty}.`,
+    );
+
+    return res.status(201).json({
+      movement: mapPrismaFormulaMovement(result.movement),
+      updatedFormula: mapPrismaFormulaRetirada(result.formula),
+    });
+  } catch (err) {
+    console.error('Erro ao criar movimentação de fórmula:', err);
+    return res.status(500).json({ error: 'Erro ao registrar movimentação de fórmula.' });
   }
 });
 

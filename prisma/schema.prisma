@@ -74,6 +74,24 @@ model FormulaRetirada {
   location     String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  movements    FormulaMovement[]
+}
+
+model FormulaMovement {
+  id              String          @id @default(uuid())
+  formulaId       String
+  formulaName     String
+  type            String
+  quantity        Int
+  responsibleId   String?
+  responsibleName String
+  recipient       String?
+  reason          String?
+  notes           String?
+  date            DateTime        @default(now())
+
+  formula         FormulaRetirada @relation(fields: [formulaId], references: [id], onDelete: Restrict)
 }
 
 model Movement {
