@@ -753,6 +753,108 @@ app.delete('/api/epis/:id', async (req, res) => {
   }
 });
 
+// =================== FÓRMULAS RETIRADAS ===================
+
+const formulaStorageLocations = new Set([
+  ...Array.from({ length: 7 }, (_, index) => `ARM ${String(index + 1).padStart(2, '0')}`),
+  ...Array.from({ length: 7 }, (_, index) => `CX ${String(index + 1).padStart(2, '0')}`),
+]);
+
+function mapPrismaFormulaRetirada(item: any) {
+  return {
+    id: item.id,
+    name: item.name,
+    manufacturer: item.manufacturer ?? undefined,
+    currentQty: item.currentQty,
+    minQty: item.minQty,
+    location: item.location,
+    updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
+  };
+}
+
+app.get('/api/formulas-retiradas', async (_req, res) => {
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const items = await prisma.formulaRetirada.findMany({ orderBy: { name: 'asc' } });
+    return res.json(items.map(mapPrismaFormulaRetirada));
+  } catch (err) {
+    console.error('Erro ao buscar fórmulas retiradas:', err);
+    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    return res.status(500).json({ error: 'Erro ao buscar fórmulas retiradas do banco.' });
+  }
+});
+
+app.post('/api/formulas-retiradas', async (req, res) => {
+  const { name, manufacturer, currentQty, minQty, location, userId, userName, userRole } = req.body;
+  const quantity = Number(currentQty);
+  const minimum = Number(minQty);
+  if (!name?.trim() || !formulaStorageLocations.has(location) || !Number.isInteger(quantity) || quantity < 0 || !Number.isInteger(minimum) || minimum < 0) {
+    return res.status(400).json({ error: 'Informe nome, quantidades válidas e um armazenamento entre ARM 01-07 ou CX 01-07.' });
+  }
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const item = await prisma.formulaRetirada.create({
+      data: { name: name.trim(), manufacturer: manufacturer?.trim() || null, currentQty: quantity, minQty: minimum, location },
+    });
+    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Cadastro de Fórmula Retirada', `Cadastrada a fórmula ${item.name} com estoque de ${item.currentQty}.`);
+    return res.status(201).json(mapPrismaFormulaRetirada(item));
+  } catch (err) {
+    console.error('Erro ao criar fórmula retirada:', err);
+    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    return res.status(500).json({ error: 'Erro ao cadastrar fórmula retirada no banco.' });
+  }
+});
+
+app.put('/api/formulas-retiradas/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, manufacturer, currentQty, minQty, location, userId, userName, userRole } = req.body;
+  if ((name !== undefined && !name?.trim()) || (location !== undefined && !formulaStorageLocations.has(location)) ||
+      (currentQty !== undefined && (!Number.isInteger(Number(currentQty)) || Number(currentQty) < 0)) ||
+      (minQty !== undefined && (!Number.isInteger(Number(minQty)) || Number(minQty) < 0))) {
+    return res.status(400).json({ error: 'Dados inválidos. Verifique nome, quantidades e armazenamento.' });
+  }
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const item = await prisma.formulaRetirada.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name: name.trim() }),
+        ...(manufacturer !== undefined && { manufacturer: manufacturer?.trim() || null }),
+        ...(currentQty !== undefined && { currentQty: Number(currentQty) }),
+        ...(minQty !== undefined && { minQty: Number(minQty) }),
+        ...(location !== undefined && { location }),
+      },
+    });
+    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Edição de Fórmula Retirada', `Alterada a fórmula ${item.name}. Estoque mínimo: ${item.minQty}, quantidade: ${item.currentQty}.`);
+    return res.json(mapPrismaFormulaRetirada(item));
+  } catch (err: any) {
+    if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
+    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    console.error('Erro ao atualizar fórmula retirada:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar fórmula retirada no banco.' });
+  }
+});
+
+app.delete('/api/formulas-retiradas/:id', async (req, res) => {
+  const { id } = req.params;
+  const { userId, userName, userRole } = req.query;
+  if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
+
+  try {
+    const item = await prisma.formulaRetirada.delete({ where: { id } });
+    await addAuditLog((userId as string) || 'admin', (userName as string) || 'Administrador', (userRole as any) || 'admin', 'Exclusão de Fórmula Retirada', `Excluída a fórmula ${item.name}.`);
+    return res.json({ success: true, message: 'Fórmula retirada excluída com sucesso.' });
+  } catch (err: any) {
+    if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
+    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    console.error('Erro ao excluir fórmula retirada:', err);
+    return res.status(500).json({ error: 'Erro ao excluir fórmula retirada do banco.' });
+  }
+});
+
 // =================== MOVEMENTS ===================
 
 app.get('/api/movements', async (_req, res) => {
