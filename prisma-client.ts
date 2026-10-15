@@ -28,6 +28,7 @@ export function getPrismaClient(): PrismaClient | null {
     prisma = new PrismaClient({
       log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
     });
+    
 
     global.__backendPrisma = prisma;
     prismaInitialized = true;
