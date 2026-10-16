@@ -753,7 +753,7 @@ app.delete('/api/epis/:id', async (req, res) => {
   }
 });
 
-// =================== FÓRMULAS RETIRADAS ===================
+// =================== MATÉRIAS-PRIMAS ===================
 
 const formulaStorageLocations = new Set([
   ...Array.from({ length: 7 }, (_, index) => `ARM ${String(index + 1).padStart(2, '0')}`),
@@ -766,6 +766,8 @@ function mapPrismaFormulaRetirada(item: any) {
     name: item.name,
     manufacturer: item.manufacturer ?? undefined,
     currentQty: item.currentQty,
+    unit: item.unit ?? 'un',
+    notes: item.notes ?? undefined,
     location: item.location,
     updatedAt: item.updatedAt instanceof Date ? item.updatedAt.toISOString() : item.updatedAt,
   };
@@ -794,37 +796,37 @@ app.get('/api/formulas-retiradas', async (_req, res) => {
     const items = await prisma.formulaRetirada.findMany({ orderBy: { name: 'asc' } });
     return res.json(items.map(mapPrismaFormulaRetirada));
   } catch (err) {
-    console.error('Erro ao buscar fórmulas retiradas:', err);
-    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
-    return res.status(500).json({ error: 'Erro ao buscar fórmulas retiradas do banco.' });
+    console.error('Erro ao buscar matérias-primas:', err);
+    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de matérias-primas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    return res.status(500).json({ error: 'Erro ao buscar matérias-primas do banco.' });
   }
 });
 
 app.post('/api/formulas-retiradas', async (req, res) => {
-  const { name, manufacturer, currentQty, location, userId, userName, userRole } = req.body;
+  const { name, manufacturer, currentQty, unit = 'un', notes, location, userId, userName, userRole } = req.body;
   const quantity = Number(currentQty);
-  if (!name?.trim() || !formulaStorageLocations.has(location) || !Number.isInteger(quantity) || quantity < 0) {
-    return res.status(400).json({ error: 'Informe nome, quantidade válida e um armazenamento entre ARM 01-07 ou CX 01-07.' });
+  if (!name?.trim() || !unit?.trim() || !formulaStorageLocations.has(location) || !Number.isInteger(quantity) || quantity < 0) {
+    return res.status(400).json({ error: 'Informe nome, unidade de medida, quantidade válida e um armazenamento entre ARM 01-07 ou CX 01-07.' });
   }
   if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
 
   try {
     const item = await prisma.formulaRetirada.create({
-      data: { name: name.trim(), manufacturer: manufacturer?.trim() || null, currentQty: quantity, location },
+      data: { name: name.trim(), manufacturer: manufacturer?.trim() || null, currentQty: quantity, unit: unit.trim(), notes: notes?.trim() || null, location },
     });
-    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Cadastro de Fórmula Retirada', `Cadastrada a fórmula ${item.name} com estoque de ${item.currentQty}.`);
+    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Cadastro de Matéria-prima', `Cadastrada a matéria-prima ${item.name} com estoque de ${item.currentQty}.`);
     return res.status(201).json(mapPrismaFormulaRetirada(item));
   } catch (err) {
-    console.error('Erro ao criar fórmula retirada:', err);
-    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
-    return res.status(500).json({ error: 'Erro ao cadastrar fórmula retirada no banco.' });
+    console.error('Erro ao criar matéria-prima:', err);
+    if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de matérias-primas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    return res.status(500).json({ error: 'Erro ao cadastrar matéria-prima no banco.' });
   }
 });
 
 app.put('/api/formulas-retiradas/:id', async (req, res) => {
   const { id } = req.params;
-    const { name, manufacturer, currentQty, location, userId, userName, userRole } = req.body;
-  if ((name !== undefined && !name?.trim()) || (location !== undefined && !formulaStorageLocations.has(location)) ||
+  const { name, manufacturer, currentQty, unit, notes, location, userId, userName, userRole } = req.body;
+  if ((name !== undefined && !name?.trim()) || (unit !== undefined && !unit?.trim()) || (location !== undefined && !formulaStorageLocations.has(location)) ||
       (currentQty !== undefined && (!Number.isInteger(Number(currentQty)) || Number(currentQty) < 0))) {
     return res.status(400).json({ error: 'Dados inválidos. Verifique nome, quantidades e armazenamento.' });
   }
@@ -837,16 +839,18 @@ app.put('/api/formulas-retiradas/:id', async (req, res) => {
         ...(name !== undefined && { name: name.trim() }),
         ...(manufacturer !== undefined && { manufacturer: manufacturer?.trim() || null }),
         ...(currentQty !== undefined && { currentQty: Number(currentQty) }),
+        ...(unit !== undefined && { unit: unit.trim() }),
+        ...(notes !== undefined && { notes: notes?.trim() || null }),
         ...(location !== undefined && { location }),
       },
     });
-    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Edição de Fórmula Retirada', `Alterada a fórmula ${item.name}. Quantidade: ${item.currentQty}.`);
+    await addAuditLog(userId || 'admin', userName || 'Usuário', userRole || 'admin', 'Edição de Matéria-prima', `Alterada a matéria-prima ${item.name}. Quantidade: ${item.currentQty}.`);
     return res.json(mapPrismaFormulaRetirada(item));
   } catch (err: any) {
-    if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
-    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
-    console.error('Erro ao atualizar fórmula retirada:', err);
-    return res.status(500).json({ error: 'Erro ao atualizar fórmula retirada no banco.' });
+    if (err?.code === 'P2025') return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
+    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de matérias-primas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    console.error('Erro ao atualizar matéria-prima:', err);
+    return res.status(500).json({ error: 'Erro ao atualizar matéria-prima no banco.' });
   }
 });
 
@@ -857,14 +861,14 @@ app.delete('/api/formulas-retiradas/:id', async (req, res) => {
 
   try {
     const item = await prisma.formulaRetirada.delete({ where: { id } });
-    await addAuditLog((userId as string) || 'admin', (userName as string) || 'Administrador', (userRole as any) || 'admin', 'Exclusão de Fórmula Retirada', `Excluída a fórmula ${item.name}.`);
-    return res.json({ success: true, message: 'Fórmula retirada excluída com sucesso.' });
+    await addAuditLog((userId as string) || 'admin', (userName as string) || 'Administrador', (userRole as any) || 'admin', 'Exclusão de Matéria-prima', `Excluída a matéria-prima ${item.name}.`);
+    return res.json({ success: true, message: 'Matéria-prima excluída com sucesso.' });
   } catch (err: any) {
-    if (err?.code === 'P2025') return res.status(404).json({ error: 'Fórmula retirada não encontrada.' });
-    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de fórmulas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
-    if (err?.code === 'P2003') return res.status(409).json({ error: 'Não é possível excluir uma fórmula que possui movimentações no histórico.' });
-    console.error('Erro ao excluir fórmula retirada:', err);
-    return res.status(500).json({ error: 'Erro ao excluir fórmula retirada do banco.' });
+    if (err?.code === 'P2025') return res.status(404).json({ error: 'Matéria-prima não encontrada.' });
+    if (err?.code === 'P2021') return res.status(503).json({ error: 'A tabela de matérias-primas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    if (err?.code === 'P2003') return res.status(409).json({ error: 'Não é possível excluir uma matéria-prima que possui movimentações no histórico.' });
+    console.error('Erro ao excluir matéria-prima:', err);
+    return res.status(500).json({ error: 'Erro ao excluir matéria-prima do banco.' });
   }
 });
 
@@ -875,8 +879,8 @@ app.get('/api/formulas-retiradas/movements', async (_req, res) => {
     const movements = await prisma.formulaMovement.findMany({ orderBy: { date: 'desc' } });
     return res.json(movements.map(mapPrismaFormulaMovement));
   } catch (err) {
-    console.error('Erro ao buscar movimentações de fórmulas:', err);
-    return res.status(500).json({ error: 'Erro ao buscar movimentações de fórmulas.' });
+    console.error('Erro ao buscar movimentações de matérias-primas:', err);
+    return res.status(500).json({ error: 'Erro ao buscar movimentações de matérias-primas.' });
   }
 });
 
@@ -884,7 +888,7 @@ app.post('/api/formulas-retiradas/movements', async (req, res) => {
   const { formulaId, type, quantity, responsibleId, responsibleName, responsibleRole, reason, recipient, notes } = req.body;
   const numQty = Number(quantity);
   if (!formulaId || !['entrada', 'saida'].includes(type) || !Number.isInteger(numQty) || numQty <= 0) {
-    return res.status(400).json({ error: 'Fórmula, tipo e quantidade inteira maior que zero são obrigatórios.' });
+    return res.status(400).json({ error: 'Matéria-prima, tipo e quantidade inteira maior que zero são obrigatórios.' });
   }
   if (!useDatabase || !prisma) return res.status(503).json({ error: 'Banco de dados não configurado.' });
 
@@ -899,7 +903,7 @@ app.post('/api/formulas-retiradas/movements', async (req, res) => {
         const exists = await tx.formulaRetirada.findUnique({ where: { id: formulaId }, select: { id: true, name: true, currentQty: true } });
         return exists
           ? { error: `Estoque insuficiente de ${exists.name}: saldo ${exists.currentQty}, retirada solicitada ${numQty}.` }
-          : { error: 'Fórmula não encontrada.' };
+          : { error: 'Matéria-prima não encontrada.' };
       }
 
       const formula = await tx.formulaRetirada.findUniqueOrThrow({ where: { id: formulaId } });
@@ -911,7 +915,7 @@ app.post('/api/formulas-retiradas/movements', async (req, res) => {
           quantity: numQty,
           responsibleId: responsibleId || null,
           responsibleName: responsibleName || 'Operador do Sistema',
-          reason: reason || (type === 'entrada' ? 'Reposição de estoque' : 'Retirada de fórmula'),
+          reason: reason || (type === 'entrada' ? 'Reposição de estoque' : 'Retirada de matéria-prima'),
           recipient: recipient || null,
           notes: notes || null,
         },
@@ -920,10 +924,10 @@ app.post('/api/formulas-retiradas/movements', async (req, res) => {
     });
 
     if ('error' in result) {
-      return res.status(result.error === 'Fórmula não encontrada.' ? 404 : 400).json({ error: result.error });
+      return res.status(result.error === 'Matéria-prima não encontrada.' ? 404 : 400).json({ error: result.error });
     }
 
-    const action = type === 'entrada' ? 'Entrada de Fórmula' : 'Retirada de Fórmula';
+    const action = type === 'entrada' ? 'Entrada de Matéria-prima' : 'Retirada de Matéria-prima';
     await addAuditLog(
       responsibleId || 'user', responsibleName || 'Usuário', responsibleRole || 'operador', action,
       `${type.toUpperCase()}: ${numQty} unidade(s) de ${result.formula.name}. Saldo atualizado para ${result.formula.currentQty}.`,
@@ -934,8 +938,8 @@ app.post('/api/formulas-retiradas/movements', async (req, res) => {
       updatedFormula: mapPrismaFormulaRetirada(result.formula),
     });
   } catch (err) {
-    console.error('Erro ao criar movimentação de fórmula:', err);
-    return res.status(500).json({ error: 'Erro ao registrar movimentação de fórmula.' });
+    console.error('Erro ao criar movimentação de matéria-prima:', err);
+    return res.status(500).json({ error: 'Erro ao registrar movimentação de matéria-prima.' });
   }
 });
 

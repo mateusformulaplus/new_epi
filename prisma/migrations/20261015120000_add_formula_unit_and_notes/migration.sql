@@ -1,0 +1,3 @@
+ALTER TABLE "FormulaRetirada"
+ADD COLUMN "unit" TEXT NOT NULL DEFAULT 'un',
+ADD COLUMN "notes" TEXT;

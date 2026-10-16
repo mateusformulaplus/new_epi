@@ -71,6 +71,8 @@ model FormulaRetirada {
   manufacturer String?
   minQty       Int      @default(0)
   currentQty   Int      @default(0)
+  unit         String   @default("un")
+  notes        String?
   location     String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
