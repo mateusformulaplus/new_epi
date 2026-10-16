@@ -94,6 +94,8 @@ model FormulaMovement {
   date            DateTime        @default(now())
 
   formula         FormulaRetirada @relation(fields: [formulaId], references: [id], onDelete: Restrict)
+
+  @@index([formulaId, date])
 }
 
 model Movement {
