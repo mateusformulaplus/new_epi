@@ -798,6 +798,7 @@ app.get('/api/formulas-retiradas', async (_req, res) => {
   } catch (err) {
     console.error('Erro ao buscar matérias-primas:', err);
     if ((err as any)?.code === 'P2021') return res.status(503).json({ error: 'A tabela de matérias-primas não existe no banco. Aplique a migration 20261014120000_create_formula_retirada.' });
+    if ((err as any)?.code === 'P2022') return res.status(503).json({ error: 'O banco de matérias-primas está desatualizado. Sincronize o schema Prisma antes de iniciar o servidor.' });
     return res.status(500).json({ error: 'Erro ao buscar matérias-primas do banco.' });
   }
 });
